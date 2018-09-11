@@ -23,6 +23,11 @@ function getTargetFilepath(filepath, outputTemplate) {
     const fileName = path
         .basename(filepath)
         .replace(path.extname(filepath), "");
+
+    if (typeof outputTemplate === "function") {
+        return outputTemplate(fileName);
+    }
+
     return outputTemplate.replace("[name]", fileName);
 }
 
