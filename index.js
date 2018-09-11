@@ -119,8 +119,9 @@ class HandlebarsPlugin {
                     compilation.hooks.htmlWebpackPluginAfterHtmlProcessing.tap("HandlebarsRenderPlugin", (data) => {
                         // @todo used a new partial helper to check for an existing partial
                         // @todo use generate id for consistent name replacements
+                        const partialName = path.basename(data.outputName, ".hbs");
                         Handlebars.registerPartial(
-                            `${prefix}/${data.outputName.replace(/\.[^.]*$/, "")}`,
+                            `${prefix}/${partialName}`,
                             data.html
                         );
 
