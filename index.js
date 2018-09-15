@@ -279,12 +279,12 @@ class HandlebarsPlugin {
                         throw reject(err);
                     }
                     if (entryFilesArray.length === 0) {
-                        log(chalk.yellow(`no valid entry files found for ${this.options.entry} -- aborting`));
+                        Logger.log(chalk.yellow(`no valid entry files found for ${this.options.entry} -- aborting`));
                         return;
                     }
                     entryFilesArray.forEach((filepath) => this.compileEntryFile(filepath, outputPath));
                     // enforce new line after plugin has finished
-                    console.log();
+                    Logger.log();
 
                     resolve();
                 });
