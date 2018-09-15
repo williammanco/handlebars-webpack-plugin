@@ -1,6 +1,5 @@
 const fs = require("fs");
 const glob = require("glob");
-const chalk = require("chalk");
 const Logger = require("./log");
 
 function getId(path) {
@@ -28,7 +27,7 @@ function resolve(Handlebars, partialsGlob) {
 
 function addMap(Handlebars, partialMap) {
     Object.keys(partialMap).forEach((partialId) => {
-        Logger.log(chalk.gray(`+ partial '${partialId}'`));
+        Logger.log(`+ partial '${partialId}'`);
         Handlebars.registerPartial(partialId, fs.readFileSync(partialMap[partialId], "utf8"));
     });
 }

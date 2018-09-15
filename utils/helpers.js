@@ -1,5 +1,4 @@
 const glob = require("glob");
-const chalk = require("chalk");
 const Logger = require("./log");
 
 function getId(filepath) {
@@ -9,10 +8,10 @@ function getId(filepath) {
 
 function register(Handlebars, id, fun) { // eslint-disable-line no-shadow
     if (Handlebars.helpers[id]) {
-        Logger.log(chalk.yellow(`The helper '${id}' is already registered.
-            Remove duplications to prevent hard to find errors.`));
+        Logger.warn(`The helper '${id}' is already registered.
+            Remove duplications to prevent hard to find errors.`);
     } else {
-        Logger.log(chalk.grey(`+ helper '${id}'`));
+        Logger.log(`+ helper '${id}'`);
     }
     Handlebars.registerHelper(id, fun);
 }

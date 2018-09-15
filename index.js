@@ -1,5 +1,4 @@
 const fs = require("fs-extra");
-const chalk = require("chalk");
 const partialUtils = require("./utils/partials");
 const helperUtils = require("./utils/helpers");
 const Handlebars = require("handlebars");
@@ -130,7 +129,7 @@ class HandlebarsPlugin {
                             const sourceFile = data.plugin.options.template.split("!").pop();
                             this.fileDependencies.push(sourceFile);
                         } catch (e) {
-                            Logger.log(chalk.red(e));
+                            Logger.error(e);
                         }
 
                         return data;
@@ -258,7 +257,7 @@ class HandlebarsPlugin {
             const dataKey = path.basename(filePath, ".json");
             this.data[dataKey] = dataFromFile;
         } catch (e) {
-            console.error(`Tried to read ${filePath} as json-file and failed. Using it as data source...`);
+            Logger.error(`Tried to read ${filePath} as json-file and failed. Using it as data source...`);
         }
     }
 
@@ -270,26 +269,32 @@ class HandlebarsPlugin {
      */
     compileAllEntryFiles(outputPath, done) {
         this.updateData();
-
         const entry = Array.isArray(this.options.entry) ? this.options.entry : [this.options.entry];
         Promise.all(
-            entry.map((entryPattern) => new Promise((resolve, reject) => {
-                glob(entryPattern, (err, entryFilesArray) => {
-                    if (err) {
-                        throw reject(err);
-                    }
-                    if (entryFilesArray.length === 0) {
-                        Logger.log(chalk.yellow(`no valid entry files found for ${this.options.entry} -- aborting`));
-                        return;
-                    }
-                    entryFilesArray.forEach((filepath) => this.compileEntryFile(filepath, outputPath));
-                    // enforce new line after plugin has finished
-                    Logger.log();
-
-                    resolve();
-                });
-            }))
-        ).then(() => done());
+            entry.map(
+                (entryPattern) =>
+                    new Promise((resolve, reject) => {
+                        glob(entryPattern, (err, files) => {
+                            if (err) {
+                                throw reject(err);
+                            }
+                            resolve(files);
+                        });
+                    })
+            )
+        )
+            .then((fileEntries) => {
+                // Flatten out the files into a single array
+                const files = fileEntries.reduce((a, b) => a.concat(b), []);
+                if (files.length === 0) {
+                    // Don't throw if no files, just show a warning
+                    Logger.warn(`No valid entry files found for ${entry.join()}`);
+                }
+                files.forEach((filepath) => this.compileEntryFile(filepath, outputPath));
+                // Enforce new line after plugin has finished
+                Logger.newLine();
+            })
+            .then(() => done());
     }
 
     /**
@@ -323,7 +328,7 @@ class HandlebarsPlugin {
         }
 
         this.options.onDone(Handlebars, targetFilepath);
-        Logger.log(chalk.grey(`created output '${targetFilepath.replace(`${process.cwd()}/`, "")}'`));
+        Logger.log(`created output '${targetFilepath.replace(`${process.cwd()}/`, "")}'`);
     }
 }
 
