@@ -5,8 +5,7 @@ const helperUtils = require("./utils/helpers");
 const Handlebars = require("handlebars");
 const glob = require("glob");
 const path = require("path");
-const log = require("./utils/log");
-
+const Logger = require("./utils/log");
 
 /**
  * Returns the target filepath of a handlebars template
@@ -20,9 +19,7 @@ function getTargetFilePath(filePath, outputTemplate) {
         return filePath.replace(path.extname(filePath), "");
     }
 
-    const fileName = path
-        .basename(filePath)
-        .replace(path.extname(filePath), "");
+    const fileName = path.basename(filePath).replace(path.extname(filePath), "");
 
     if (typeof outputTemplate === "function") {
         return outputTemplate(fileName, filePath);
@@ -31,23 +28,29 @@ function getTargetFilePath(filePath, outputTemplate) {
     return outputTemplate.replace("[name]", fileName);
 }
 
-
 class HandlebarsPlugin {
-
     constructor(options) {
-        this.options = Object.assign({
-            entry: null,
-            output: null,
-            data: {},
-            helpers: {},
-            htmlWebpackPlugin: null,
-            onBeforeSetup: Function.prototype,
-            onBeforeAddPartials: Function.prototype,
-            onBeforeCompile: Function.prototype,
-            onBeforeRender: Function.prototype,
-            onBeforeSave: Function.prototype,
-            onDone: Function.prototype
-        }, options);
+        this.options = Object.assign(
+            {
+                entry: null,
+                output: null,
+                data: {},
+                helpers: {},
+                htmlWebpackPlugin: null,
+                log: false,
+                onBeforeSetup: Function.prototype,
+                onBeforeAddPartials: Function.prototype,
+                onBeforeCompile: Function.prototype,
+                onBeforeRender: Function.prototype,
+                onBeforeSave: Function.prototype,
+                onDone: Function.prototype
+            },
+            options
+        );
+
+        if (this.options.log) {
+            Logger.enable();
+        }
 
         // setup htmlWebpackPlugin default options and merge user configuration
         this.options.htmlWebpackPlugin = Object.assign({ enabled: false, prefix: "html" }, options.htmlWebpackPlugin);
@@ -85,7 +88,6 @@ class HandlebarsPlugin {
      * @param  {Compiler} compiler
      */
     apply(compiler) {
-
         // COMPILE TEMPLATES
         const compile = (compilation, done) => {
             if (this.dependenciesUpdated(compilation) === false) {
@@ -120,10 +122,7 @@ class HandlebarsPlugin {
                         // @todo used a new partial helper to check for an existing partial
                         // @todo use generate id for consistent name replacements
                         const partialName = path.basename(data.outputName, ".hbs");
-                        Handlebars.registerPartial(
-                            `${prefix}/${partialName}`,
-                            data.html
-                        );
+                        Handlebars.registerPartial(`${prefix}/${partialName}`, data.html);
 
                         try {
                             // @improve hacky filepath retrieval
@@ -131,7 +130,7 @@ class HandlebarsPlugin {
                             const sourceFile = data.plugin.options.template.split("!").pop();
                             this.fileDependencies.push(sourceFile);
                         } catch (e) {
-                            log(chalk.red(e));
+                            Logger.log(chalk.red(e));
                         }
 
                         return data;
@@ -141,7 +140,6 @@ class HandlebarsPlugin {
                 compiler.hooks.emit.tapAsync("HandlebarsRenderPlugin", (compilation, done) => {
                     compile(compilation, () => emitDependencies(compilation, done));
                 });
-
             } else {
                 // use standard compiler hooks
                 compiler.hooks.make.tapAsync("HandlebarsRenderPlugin", compile);
@@ -282,9 +280,9 @@ class HandlebarsPlugin {
                     }
                     if (entryFilesArray.length === 0) {
                         log(chalk.yellow(`no valid entry files found for ${this.options.entry} -- aborting`));
-                return;
-            }
-            entryFilesArray.forEach((filepath) => this.compileEntryFile(filepath, outputPath));
+                        return;
+                    }
+                    entryFilesArray.forEach((filepath) => this.compileEntryFile(filepath, outputPath));
                     // enforce new line after plugin has finished
                     console.log();
 
@@ -318,7 +316,6 @@ class HandlebarsPlugin {
                 source: () => result,
                 size: () => result.length
             };
-
         } else {
             // @legacy: if the filepath lies outside the actual webpack destination folder, simply write that file.
             // There is no wds-support here, because of watched assets being emitted again
@@ -326,7 +323,7 @@ class HandlebarsPlugin {
         }
 
         this.options.onDone(Handlebars, targetFilepath);
-        log(chalk.grey(`created output '${targetFilepath.replace(`${process.cwd()}/`, "")}'`));
+        Logger.log(chalk.grey(`created output '${targetFilepath.replace(`${process.cwd()}/`, "")}'`));
     }
 }
 

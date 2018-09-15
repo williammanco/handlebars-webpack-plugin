@@ -1,8 +1,7 @@
 const fs = require("fs");
 const glob = require("glob");
 const chalk = require("chalk");
-const log = require("./log");
-
+const Logger = require("./log");
 
 function getId(path) {
     return path.match(/\/([^/]+\/[^/]+)\.[^.]+$/).pop();
@@ -29,14 +28,13 @@ function resolve(Handlebars, partialsGlob) {
 
 function addMap(Handlebars, partialMap) {
     Object.keys(partialMap).forEach((partialId) => {
-        log(chalk.gray(`+ partial '${partialId}'`));
+        Logger.log(chalk.gray(`+ partial '${partialId}'`));
         Handlebars.registerPartial(partialId, fs.readFileSync(partialMap[partialId], "utf8"));
     });
 }
 
 
 module.exports = {
-
     getId,
     resolve,
     addMap
