@@ -10,22 +10,22 @@ const log = require("./utils/log");
 
 /**
  * Returns the target filepath of a handlebars template
- * @param  {String} filepath            - input filepath
+ * @param  {String} filePath            - input filepath
  * @param  {String} [outputTemplate]    - template for output filename.
  *                                          If ommited, the same filename stripped of its extension will be used
  * @return {String} target filepath
  */
-function getTargetFilepath(filepath, outputTemplate) {
+function getTargetFilePath(filePath, outputTemplate) {
     if (outputTemplate == null) {
-        return filepath.replace(path.extname(filepath), "");
+        return filePath.replace(path.extname(filePath), "");
     }
 
     const fileName = path
-        .basename(filepath)
-        .replace(path.extname(filepath), "");
+        .basename(filePath)
+        .replace(path.extname(filePath), "");
 
     if (typeof outputTemplate === "function") {
-        return outputTemplate(fileName);
+        return outputTemplate(fileName, filePath);
     }
 
     return outputTemplate.replace("[name]", fileName);
@@ -296,7 +296,7 @@ class HandlebarsPlugin {
      * @param  {String} outputPath  - webpack output path for build results
      */
     compileEntryFile(sourcePath, outputPath) {
-        let targetFilepath = getTargetFilepath(sourcePath, this.options.output);
+        let targetFilepath = getTargetFilePath(sourcePath, this.options.output);
         // fetch template content
         let templateContent = this.readFile(sourcePath, "utf-8");
         templateContent = this.options.onBeforeCompile(Handlebars, templateContent) || templateContent;
