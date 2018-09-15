@@ -271,23 +271,27 @@ class HandlebarsPlugin {
      * @param  {Function} done
      */
     compileAllEntryFiles(outputPath, done) {
-
         this.updateData();
 
-        glob(this.options.entry, (err, entryFilesArray) => {
-            if (err) {
-                throw err;
-            }
-            if (entryFilesArray.length === 0) {
-                log(chalk.yellow(`no valid entry files found for ${this.options.entry} -- aborting`));
+        const entry = Array.isArray(this.options.entry) ? this.options.entry : [this.options.entry];
+        Promise.all(
+            entry.map((entryPattern) => new Promise((resolve, reject) => {
+                glob(entryPattern, (err, entryFilesArray) => {
+                    if (err) {
+                        throw reject(err);
+                    }
+                    if (entryFilesArray.length === 0) {
+                        log(chalk.yellow(`no valid entry files found for ${this.options.entry} -- aborting`));
                 return;
             }
             entryFilesArray.forEach((filepath) => this.compileEntryFile(filepath, outputPath));
-            // enforce new line after plugin has finished
-            console.log();
+                    // enforce new line after plugin has finished
+                    console.log();
 
-            done();
-        });
+                    resolve();
+                });
+            }))
+        ).then(() => done());
     }
 
     /**
