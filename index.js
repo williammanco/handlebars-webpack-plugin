@@ -323,7 +323,10 @@ class HandlebarsPlugin {
         outputPath = sanitizePath(outputPath);
 
         let rootFolderName = path.dirname(sourcePath);
-        if (this.options.output.includes("[path]")) {
+
+        const output = typeof this.options.output  === 'function' ? this.options.output(sourcePath) : this.options.output;
+
+        if (output.includes("[path]")) {
             rootFolderName = getRootFolder(sourcePath, this.options.entry, this.options.partials);
         }
         if (rootFolderName === false) {
@@ -331,7 +334,7 @@ class HandlebarsPlugin {
             return;
         }
 
-        let targetFilepath = this.options.getTargetFilepath(sourcePath, this.options.output, rootFolderName);
+        let targetFilepath = this.options.getTargetFilepath(sourcePath, output, rootFolderName);
         // fetch template content
         let templateContent = this.readFile(sourcePath, "utf-8");
         templateContent = this.options.onBeforeCompile(Handlebars, templateContent) || templateContent;
