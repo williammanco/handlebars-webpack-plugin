@@ -4,23 +4,23 @@ const chalk = require("chalk");
 const log = require("./log");
 
 
-function getId(path) {
+function getDefaultId(path) {
     return path.match(/\/([^/]+\/[^/]+)\.[^.]+$/).pop();
 }
 
-function resolve(Handlebars, partialsGlob) {
+function resolve(Handlebars, partialsGlob, getId) {
     let partials = [];
 
     if (partialsGlob == null) {
         return {};
     }
 
-    partialsGlob.forEach((partialGlob) => {
+    partialsGlob.forEach(partialGlob => {
         partials = partials.concat(glob.sync(partialGlob));
     });
 
     const partialMap = {};
-    partials.forEach((path) => {
+    partials.forEach(path => {
         partialMap[getId(path)] = path;
     });
 
@@ -28,7 +28,7 @@ function resolve(Handlebars, partialsGlob) {
 }
 
 function addMap(Handlebars, partialMap) {
-    Object.keys(partialMap).forEach((partialId) => {
+    Object.keys(partialMap).forEach(partialId => {
         log(chalk.gray(`+ partial '${partialId}'`));
         Handlebars.registerPartial(partialId, fs.readFileSync(partialMap[partialId], "utf8"));
     });
@@ -36,8 +36,7 @@ function addMap(Handlebars, partialMap) {
 
 
 module.exports = {
-
-    getId,
+    getDefaultId,
     resolve,
     addMap
 };

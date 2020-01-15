@@ -6,36 +6,25 @@ const Handlebars = require("handlebars");
 const glob = require("glob");
 const path = require("path");
 const log = require("./utils/log");
-
-
-/**
- * Returns the target filepath of a handlebars template
- * @param  {String} filepath            - input filepath
- * @param  {String} [outputTemplate]    - template for output filename.
- *                                          If ommited, the same filename stripped of its extension will be used
- * @return {String} target filepath
- */
-function getTargetFilepath(filepath, outputTemplate) {
-    if (outputTemplate == null) {
-        return filepath.replace(path.extname(filepath), "");
-    }
-
-    const fileName = path
-        .basename(filepath)
-        .replace(path.extname(filepath), "");
-    return outputTemplate.replace("[name]", fileName);
-}
+const getTargetFilepath = require("./utils/getTargetFilepath");
+const sanitizePath = require("./utils/sanitizePath.js");
+const getRootFolder = require("./utils/getRootFolder");
 
 
 class HandlebarsPlugin {
 
-    constructor(options) {
+    constructor(options = {}) {
         this.options = Object.assign({
             entry: null,
             output: null,
             data: {},
             helpers: {},
             htmlWebpackPlugin: null,
+            // make filepath retrieval customizable
+            getTargetFilepath,
+            // make partial-id generator customizable
+            getPartialId: partialUtils.getDefaultId,
+            // lifecycle hooks
             onBeforeSetup: Function.prototype,
             onBeforeAddPartials: Function.prototype,
             onBeforeCompile: Function.prototype,
@@ -45,7 +34,12 @@ class HandlebarsPlugin {
         }, options);
 
         // setup htmlWebpackPlugin default options and merge user configuration
-        this.options.htmlWebpackPlugin = Object.assign({ enabled: false, prefix: "html" }, options.htmlWebpackPlugin);
+        let htmlWebpackPluginOptions = options.htmlWebpackPlugin;
+        if (htmlWebpackPluginOptions && htmlWebpackPluginOptions.toString() === "true") {
+            htmlWebpackPluginOptions = { enabled: true };
+        }
+
+        this.options.htmlWebpackPlugin = Object.assign({ enabled: false, prefix: "html" }, htmlWebpackPluginOptions);
 
         this.firstCompilation = true;
         this.options.onBeforeSetup(Handlebars);
@@ -54,10 +48,12 @@ class HandlebarsPlugin {
         this.updateData();
         this.prevTimestamps = {};
         this.startTime = Date.now();
+        this.loadHelpers();
+    }
 
-        // register helpers
+    loadHelpers() {
         const helperMap = helperUtils.resolve(this.options.helpers);
-        helperMap.forEach((helper) => {
+        helperMap.forEach(helper => {
             helperUtils.register(Handlebars, helper.id, helper.helperFunction);
             this.addDependency(helper.filepath);
         });
@@ -68,11 +64,11 @@ class HandlebarsPlugin {
      */
     loadPartials() {
         // register partials
-        const partials = partialUtils.resolve(Handlebars, this.options.partials);
+        const partials = partialUtils.resolve(Handlebars, this.options.partials, this.options.getPartialId);
         this.options.onBeforeAddPartials(Handlebars, partials);
         partialUtils.addMap(Handlebars, partials);
         // watch all partials for changes
-        this.addDependency.apply(this, Object.keys(partials).map((key) => partials[key]));
+        this.addDependency.apply(this, Object.keys(partials).map(key => partials[key]));
     }
 
     /**
@@ -83,39 +79,50 @@ class HandlebarsPlugin {
 
         // COMPILE TEMPLATES
         const compile = (compilation, done) => {
-            if (this.dependenciesUpdated(compilation) === false) {
-                return done();
+            try {
+                if (this.dependenciesUpdated(compilation) === false) {
+                    return done();
+                }
+                this.loadPartials(); // Refresh partials
+                this.compileAllEntryFiles(compilation, done); // build all html pages
+            } catch (error) {
+                compilation.errors.push(error);
             }
-            this.loadPartials(); // Refresh partials
-            this.compileAllEntryFiles(compilation.compiler.outputPath, done); // build all html pages
-            return undefined;
+            return undefined; // done();?
         };
 
         // REGISTER FILE DEPENDENCIES TO WEBPACK
         const emitDependencies = (compilation, done) => {
-            // register dependencies at webpack
-            if (compilation.fileDependencies.add) {
-                // webpack@4
-                this.fileDependencies.forEach(compilation.fileDependencies.add, compilation.fileDependencies);
-            } else {
-                compilation.fileDependencies = compilation.fileDependencies.concat(this.fileDependencies);
+            try {
+                // register dependencies at webpack
+                if (compilation.fileDependencies.add) {
+                    // webpack@4
+                    this.fileDependencies.forEach(compilation.fileDependencies.add, compilation.fileDependencies);
+                } else {
+                    compilation.fileDependencies = compilation.fileDependencies.concat(this.fileDependencies);
+                }
+                // emit generated html pages (webpack-dev-server)
+                this.emitGeneratedFiles(compilation);
+                return done();
+            } catch (error) {
+                compilation.errors.push(error);
             }
-            // emit generated html pages (webpack-dev-server)
-            this.emitGeneratedFiles(compilation);
-            return done();
+            return undefined; // done();?
         };
 
+        // @wp >= 4
         if (compiler.hooks) {
             // @feature html-webpack-plugin
             if (this.options.htmlWebpackPlugin.enabled) {
                 const { prefix } = this.options.htmlWebpackPlugin;
 
-                compiler.hooks.compilation.tap("HtmlWebpackPluginHooks", (compilation) => {
-                    compilation.hooks.htmlWebpackPluginAfterHtmlProcessing.tap("HandlebarsRenderPlugin", (data) => {
+                compiler.hooks.compilation.tap("HtmlWebpackPluginHooks", compilation => {
+                    compilation.hooks.htmlWebpackPluginAfterHtmlProcessing.tap("HandlebarsRenderPlugin", data => {
                         // @todo used a new partial helper to check for an existing partial
                         // @todo use generate id for consistent name replacements
+
                         Handlebars.registerPartial(
-                            `${prefix}/${data.outputName.replace(/\.[^.]*$/, "")}`,
+                            `${prefix}/${sanitizePath(data.outputName.replace(/\.[^.]*$/, ""))}`,
                             data.html
                         );
 
@@ -154,7 +161,7 @@ class HandlebarsPlugin {
      * @return {String} filecontents
      */
     readFile(filepath) {
-        this.fileDependencies.push(filepath);
+        this.addDependency(filepath);
         return fs.readFileSync(filepath, "utf-8");
     }
 
@@ -163,7 +170,15 @@ class HandlebarsPlugin {
      * @param {...[String]} args    - list of filepaths
      */
     addDependency(...args) {
-        this.fileDependencies.push.apply(this.fileDependencies, args.filter((filename) => filename));
+        if (!args) {
+            return;
+        }
+
+        args.forEach(filename => {
+            if (filename && !this.fileDependencies.includes(filename)) {
+                this.fileDependencies.push(filename);
+            }
+        });
     }
 
     /**
@@ -175,7 +190,7 @@ class HandlebarsPlugin {
         const fileTimestamps = compilation.fileTimestamps;
         const fileNames = fileTimestamps.has ? Array.from(fileTimestamps.keys()) : Object.keys(fileTimestamps);
 
-        const changedFiles = fileNames.filter((watchfile) => {
+        const changedFiles = fileNames.filter(watchfile => {
             const prevTimestamp = this.prevTimestamps[watchfile];
             const nextTimestamp = fileTimestamps.has ? fileTimestamps.get(watchfile) : fileTimestamps[watchfile];
             this.prevTimestamps[watchfile] = nextTimestamp;
@@ -192,7 +207,8 @@ class HandlebarsPlugin {
      */
     containsOwnDependency(list) {
         for (let i = 0; i < list.length; i += 1) {
-            if (this.fileDependencies.includes(list[i])) {
+            const filepath = sanitizePath(list[i]);
+            if (this.fileDependencies.includes(filepath)) {
                 return true;
             }
         }
@@ -223,7 +239,7 @@ class HandlebarsPlugin {
      * @param  {Compilation} compilation
      */
     emitGeneratedFiles(compilation) {
-        Object.keys(this.assetsToEmit).forEach((filename) => {
+        Object.keys(this.assetsToEmit).forEach(filename => {
             compilation.assets[filename] = this.assetsToEmit[filename];
         });
     }
@@ -261,22 +277,36 @@ class HandlebarsPlugin {
     /**
      * @async
      * Generates all given handlebars templates
-     * @param  {String} outputPath  - webpack output path for build results
+     * @param  {String} compilation  - webpack compilation
      * @param  {Function} done
      */
-    compileAllEntryFiles(outputPath, done) {
+    compileAllEntryFiles(compilation, done) {
 
         this.updateData();
 
-        glob(this.options.entry, (err, entryFilesArray) => {
-            if (err) {
-                throw err;
-            }
-            if (entryFilesArray.length === 0) {
-                log(chalk.yellow(`no valid entry files found for ${this.options.entry} -- aborting`));
+        glob(this.options.entry, (globError, entryFilesArray) => {
+            if (globError) {
+                compilation.errors.push(globError);
+                done();
                 return;
             }
-            entryFilesArray.forEach((filepath) => this.compileEntryFile(filepath, outputPath));
+
+            try {
+                if (entryFilesArray.length === 0) {
+                    log(chalk.yellow(`no valid entry files found for ${this.options.entry} -- aborting`));
+                    return;
+                }
+                entryFilesArray.forEach(sourcePath => {
+                    try {
+                        this.compileEntryFile(sourcePath, compilation.compiler.outputPath);
+                    } catch (error) {
+                        compilation.errors.push(new Error(`${sourcePath}: ${error.message}\n${error.stack}`));
+                    }
+                });
+            } catch (error) {
+                compilation.errors.push(error);
+            }
+
             // enforce new line after plugin has finished
             console.log();
 
@@ -290,13 +320,24 @@ class HandlebarsPlugin {
      * @param  {String} outputPath  - webpack output path for build results
      */
     compileEntryFile(sourcePath, outputPath) {
-        let targetFilepath = getTargetFilepath(sourcePath, this.options.output);
+        outputPath = sanitizePath(outputPath);
+
+        let rootFolderName = path.dirname(sourcePath);
+        if (this.options.output.includes("[path]")) {
+            rootFolderName = getRootFolder(sourcePath, this.options.entry, this.options.partials);
+        }
+        if (rootFolderName === false) {
+            compilation.errors.push(new Error(`${sourcePath}: is ignored`));
+            return;
+        }
+
+        let targetFilepath = this.options.getTargetFilepath(sourcePath, this.options.output, rootFolderName);
         // fetch template content
         let templateContent = this.readFile(sourcePath, "utf-8");
         templateContent = this.options.onBeforeCompile(Handlebars, templateContent) || templateContent;
         // create template
         const template = Handlebars.compile(templateContent);
-        const data = this.options.onBeforeRender(Handlebars, this.data) || this.data;
+        const data = this.options.onBeforeRender(Handlebars, this.data, sourcePath) || this.data;
         // compile template
         let result = template(data);
         result = this.options.onBeforeSave(Handlebars, result, targetFilepath) || result;
